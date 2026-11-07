@@ -28,7 +28,7 @@
    ~/Library/Application Support/echo-music/plugins/kg-vip-checkin/
    ```
 
-   Windows / Linux 请通过应用内的插件目录入口找到对应路径，目录名使用 `kg-vip-checkin`。
+   Windows / Linux 请参考 EchoMusic 的插件管理页面或官方文档确认目录路径，目录名使用 `kg-vip-checkin`。
 
 3. 重启 EchoMusic，在插件设置中启用「酷狗概念版自动签到」。
 
@@ -59,7 +59,7 @@
 
 **提示「升级未完成」或错误码？**
 
-升级是附加步骤，失败不影响当天 VIP 领取。常见错误码如 `297000`、`297002` 通常表示当前没有可升级的奖励或已经升级过。
+升级是附加步骤，失败不影响当天 VIP 领取。错误码会记录在插件状态中，可忽略。
 
 **提示登录已过期？**
 
