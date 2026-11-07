@@ -22,6 +22,23 @@ export function shanghaiDateKey(date = new Date()) {
   return `${pick('year')}-${pick('month')}-${pick('day')}`;
 }
 
+// 上海自 1991 年起固定 UTC+8，无夏令时
+const SHANGHAI_OFFSET_MS = 8 * 60 * 60 * 1000;
+
+export function msUntilNextShanghaiMidnight(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BEIJING_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const pick = (type) => Number(parts.find((part) => part.type === type)?.value || 0);
+  const nextMidnight =
+    Date.UTC(pick('year'), pick('month') - 1, pick('day') + 1) - SHANGHAI_OFFSET_MS;
+  const delay = nextMidnight - now.getTime();
+  return delay > 0 ? delay : delay + 24 * 60 * 60 * 1000;
+}
+
 function createRuntime() {
   const timers = new Set();
   let disposed = false;
@@ -38,6 +55,18 @@ function createRuntime() {
         }, ms);
         timers.add(timer);
       });
+    },
+    schedule(callback, delay) {
+      if (disposed) return () => {};
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        callback();
+      }, delay);
+      timers.add(timer);
+      return () => {
+        if (!timers.delete(timer)) return;
+        clearTimeout(timer);
+      };
     },
     dispose() {
       disposed = true;
@@ -305,6 +334,59 @@ export async function runCheckIn(ctx, options = {}) {
   return activeRun;
 }
 
+export function startDailyScheduler(ctx, runtime, options = {}) {
+  const now = options.now || (() => new Date());
+  const eventTarget =
+    options.eventTarget !== undefined
+      ? options.eventTarget
+      : typeof window !== 'undefined'
+        ? window
+        : null;
+  const isVisible =
+    options.isVisible ||
+    (() => !eventTarget || eventTarget.visibilityState !== 'hidden');
+
+  let cancelTimer = null;
+  let stopped = false;
+
+  const trigger = async () => {
+    if (stopped || runtime.disposed) return;
+    const settings = await readSettings(ctx);
+    if (stopped || runtime.disposed || !settings.autoCheckin) return;
+    await runCheckIn(ctx, { runtime });
+  };
+  const onWake = () => {
+    if (isVisible()) void trigger();
+  };
+  const arm = () => {
+    if (stopped || runtime.disposed) return;
+    cancelTimer = runtime.schedule(() => {
+      cancelTimer = null;
+      void trigger();
+      arm();
+    }, msUntilNextShanghaiMidnight(now()));
+  };
+
+  const removeListeners = [];
+  if (eventTarget && typeof eventTarget.addEventListener === 'function') {
+    eventTarget.addEventListener('visibilitychange', onWake);
+    eventTarget.addEventListener('focus', onWake);
+    removeListeners.push(() => eventTarget.removeEventListener?.('visibilitychange', onWake));
+    removeListeners.push(() => eventTarget.removeEventListener?.('focus', onWake));
+  }
+  arm();
+
+  return {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      if (cancelTimer) cancelTimer();
+      cancelTimer = null;
+      for (const remove of removeListeners) remove();
+    },
+  };
+}
+
 async function bootstrap(ctx, runtime) {
   try {
     const settings = await readSettings(ctx);
@@ -482,7 +564,7 @@ function installSettings(ctx) {
               h(
                 'div',
                 { class: 'kg-vip-switch-sub' },
-                '每天最多自动执行一次，今日已领取时跳过',
+                '每天 0 点自动领取，窗口重新激活时补查；今日已领取则跳过',
               ),
             ]),
             renderSwitch(autoCheckin.value, toggleAuto),
@@ -494,7 +576,7 @@ function installSettings(ctx) {
   ctx.ui.settings.define({
     id: 'default',
     title: '酷狗概念版自动签到',
-    description: '打开播放器后自动领取当天 VIP，并显示到期时间',
+    description: '每天自动领取当天 VIP，运行期间跨天自动补签',
     component: SettingsPanel,
   });
 }
@@ -503,13 +585,18 @@ export function activate(ctx) {
   console.log(`${PLUGIN_TAG} 已激活 v${ctx.manifest?.version || ''}`);
   const runtime = createRuntime();
   currentRuntime = runtime;
+  let scheduler = null;
   ctx.dispose(() => {
+    scheduler?.stop();
     runtime.dispose();
     if (currentRuntime === runtime) currentRuntime = null;
   });
   installStyles(ctx);
   installSettings(ctx);
-  void bootstrap(ctx, runtime);
+  void (async () => {
+    await bootstrap(ctx, runtime);
+    if (!runtime.disposed) scheduler = startDailyScheduler(ctx, runtime);
+  })();
 }
 
 export function deactivate() {

@@ -1,8 +1,8 @@
 {
   "id": "kg-vip-checkin",
   "name": "酷狗概念版自动签到",
-  "version": "1.0.0",
-  "description": "打开 EchoMusic 后自动领取当天的酷狗概念版 VIP，并显示当前到期时间。",
+  "version": "1.1.0",
+  "description": "打开 EchoMusic 后自动领取当天的酷狗概念版 VIP；运行期间跨天会自动补签，并显示当前到期时间。",
   "author": "alleyfrost",
   "main": "index.js",
   "tags": ["kugou", "vip", "checkin"],
